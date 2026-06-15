@@ -1004,8 +1004,8 @@ function LoginModal({ onClose, onLogin }) {
         <div className="modal-icon"><Shield size={28} /></div>
         <h2>Ingresar a D-CTF</h2>
         <p>Usa admin/admin o neo/player para probar roles.</p>
-        <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email" />
-        <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="password" />
+        <input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email" />
+        <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="password" />
         <button className="primary-button full" type="submit"><LogIn size={16} /> Ingresar</button>
       </form>
     </div>
