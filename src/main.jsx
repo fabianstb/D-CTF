@@ -2,21 +2,25 @@ import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
+  ArrowDownUp,
   BarChart3,
   BookOpen,
   Boxes,
   CheckCircle2,
-  ChevronRight,
   CircleDollarSign,
   Clock3,
   Code2,
+  Droplet,
+  Download,
   Eye,
   FileArchive,
   Flag,
   Gauge,
   KeyRound,
+  Layers,
   LayoutDashboard,
   ListChecks,
+  Lock,
   LockKeyhole,
   LogIn,
   LogOut,
@@ -139,6 +143,7 @@ const seedState = {
       id: "c-web",
       name: "Signal Leak",
       category: "Web",
+      difficulty: "Medium",
       type: "standard",
       value: 350,
       minValue: 120,
@@ -161,6 +166,7 @@ const seedState = {
       id: "c-crypto",
       name: "Cold Lattice",
       category: "Crypto",
+      difficulty: "Hard",
       type: "dynamic",
       value: 500,
       minValue: 150,
@@ -180,6 +186,7 @@ const seedState = {
       id: "c-re",
       name: "Pulse VM",
       category: "Reverse",
+      difficulty: "Insane",
       type: "standard",
       value: 420,
       minValue: 180,
@@ -199,6 +206,7 @@ const seedState = {
       id: "c-forensics",
       name: "Satellite Dust",
       category: "Forensics",
+      difficulty: "Easy",
       type: "standard",
       value: 280,
       minValue: 100,
@@ -270,10 +278,29 @@ function computeChallengeValue(challenge, solvesCount) {
   return Math.max(Number(challenge.minValue || 0), current);
 }
 
+const DIFFICULTIES = ["Easy", "Medium", "Hard", "Insane"];
+const DIFFICULTY_RANK = { Easy: 0, Medium: 1, Hard: 2, Insane: 3 };
+const CATEGORIES = ["Web", "Crypto", "Reverse", "Forensics", "Pwn", "Misc"];
+
+function difficultyOf(challenge) {
+  return DIFFICULTIES.includes(challenge?.difficulty) ? challenge.difficulty : "Medium";
+}
+
+function firstBloodMap(state) {
+  const map = {};
+  [...state.solves]
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)))
+    .forEach((solve) => {
+      if (!map[solve.challengeId]) map[solve.challengeId] = solve.userId;
+    });
+  return map;
+}
+
 const emptyChallengeForm = {
   id: "",
   name: "",
   category: "Web",
+  difficulty: "Easy",
   type: "standard",
   value: 100,
   minValue: 100,
@@ -319,6 +346,7 @@ function formToChallenge(form, fallbackId) {
     id: form.id || fallbackId,
     name: form.name.trim() || "Untitled challenge",
     category: form.category,
+    difficulty: DIFFICULTIES.includes(form.difficulty) ? form.difficulty : "Medium",
     type: form.type,
     value: Number(form.value || 0),
     minValue: Number(form.minValue || 0),
@@ -379,6 +407,41 @@ function App() {
     return true;
   };
 
+  const register = (form) => {
+    if (!state.event.allowRegistration) {
+      showToast("Registro cerrado por la organizacion.");
+      return false;
+    }
+    const email = form.email.trim().toLowerCase();
+    if (!form.name.trim() || !email || !form.password) {
+      showToast("Completa nombre, email y password.");
+      return false;
+    }
+    if (state.users.some((u) => u.email.toLowerCase() === email)) {
+      showToast("Email ya registrado.");
+      return false;
+    }
+    const newUser = {
+      id: uid("u"),
+      name: form.name.trim(),
+      email,
+      password: form.password,
+      role: "competitor",
+      teamId: "",
+      country: form.country.trim() || "CL",
+      affiliation: form.affiliation.trim(),
+      bio: "",
+      banned: false,
+      verified: !state.event.requireEmailVerification,
+    };
+    updateState((current) => ({ ...current, users: [newUser, ...current.users] }));
+    localStorage.setItem("dctf-session", newUser.id);
+    setSessionId(newUser.id);
+    setLoginOpen(false);
+    showToast(`Cuenta creada: ${newUser.name}`);
+    return true;
+  };
+
   const logout = () => {
     localStorage.removeItem("dctf-session");
     setSessionId("");
@@ -414,7 +477,7 @@ function App() {
         {active === "profile" && <Profile state={state} user={currentUser} updateState={updateState} onLogin={() => setLoginOpen(true)} />}
         {active === "admin" && <Admin state={state} user={currentUser} updateState={updateState} showToast={showToast} />}
       </main>
-      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={login} />}
+      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} onLogin={login} onRegister={register} canRegister={state.event.allowRegistration} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );
@@ -582,21 +645,93 @@ function Panel({ title, icon: Icon, children }) {
   );
 }
 
-function Challenges({ state, user, selected, setSelected, updateState, showToast }) {
-  const [flagValue, setFlagValue] = useState("");
-  const [filter, setFilter] = useState("All");
-  const categories = ["All", ...new Set(state.challenges.map((challenge) => challenge.category))];
-  const solvesForSelected = state.solves.filter((solve) => solve.challengeId === selected.id);
-  const alreadySolved = user && state.solves.some((solve) => solve.userId === user.id && solve.challengeId === selected.id);
-  const selectedValue = computeChallengeValue(selected, solvesForSelected.length);
+const SORT_OPTIONS = [
+  ["category", "Categoria"],
+  ["difficulty", "Dificultad"],
+  ["points-desc", "Mas puntos"],
+  ["points-asc", "Menos puntos"],
+  ["solves-desc", "Mas resueltos"],
+  ["name", "Nombre A-Z"],
+];
 
-  const submitFlag = () => {
+function DifficultyBadge({ difficulty }) {
+  const value = DIFFICULTIES.includes(difficulty) ? difficulty : "Medium";
+  const filled = (DIFFICULTY_RANK[value] ?? 1) + 1;
+  return (
+    <span className="diff-badge" data-diff={value} title={`Dificultad: ${value}`}>
+      <span className="diff-bars" aria-hidden="true">
+        {[0, 1, 2, 3].map((i) => (
+          <i key={i} className={i < filled ? "on" : ""} />
+        ))}
+      </span>
+      {value}
+    </span>
+  );
+}
+
+function Challenges({ state, user, selected, setSelected, updateState, showToast }) {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All");
+  const [difficulty, setDifficulty] = useState("All");
+  const [sort, setSort] = useState("category");
+  const [onlyUnsolved, setOnlyUnsolved] = useState(false);
+  const [openId, setOpenId] = useState(null);
+
+  const isSolved = (challengeId) =>
+    Boolean(user && state.solves.some((solve) => solve.userId === user.id && solve.challengeId === challengeId));
+  const solveCount = (challengeId) => state.solves.filter((solve) => solve.challengeId === challengeId).length;
+  const firstBlood = firstBloodMap(state);
+  const firstBloodName = (id) => state.users.find((u) => u.id === firstBlood[id])?.name || "";
+
+  const categories = ["All", ...new Set(state.challenges.map((c) => c.category))];
+
+  const visible = state.challenges
+    .filter((c) => c.visible)
+    .filter((c) => category === "All" || c.category === category)
+    .filter((c) => difficulty === "All" || difficultyOf(c) === difficulty)
+    .filter((c) => !onlyUnsolved || !isSolved(c.id))
+    .filter((c) => {
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      return c.name.toLowerCase().includes(q) || (c.tags || []).some((t) => t.toLowerCase().includes(q));
+    });
+
+  const sorted = [...visible].sort((a, b) => {
+    switch (sort) {
+      case "difficulty":
+        return DIFFICULTY_RANK[difficultyOf(a)] - DIFFICULTY_RANK[difficultyOf(b)] || a.name.localeCompare(b.name);
+      case "points-desc":
+        return computeChallengeValue(b, solveCount(b.id)) - computeChallengeValue(a, solveCount(a.id));
+      case "points-asc":
+        return computeChallengeValue(a, solveCount(a.id)) - computeChallengeValue(b, solveCount(b.id));
+      case "solves-desc":
+        return solveCount(b.id) - solveCount(a.id) || a.name.localeCompare(b.name);
+      case "name":
+        return a.name.localeCompare(b.name);
+      case "category":
+      default:
+        return a.category.localeCompare(b.category) || a.name.localeCompare(b.name);
+    }
+  });
+
+  const grouped = sort === "category";
+  const groups = grouped
+    ? categories
+        .filter((cat) => cat !== "All")
+        .map((cat) => [cat, sorted.filter((c) => c.category === cat)])
+        .filter(([, items]) => items.length)
+    : [["all", sorted]];
+
+  const openChallenge = state.challenges.find((c) => c.id === openId) || null;
+
+  const submitFlag = (challenge, rawValue, onDone) => {
     if (!user) {
       showToast("Inicia sesion para enviar flags.");
       return;
     }
-    const normalized = flagValue.trim();
-    const correct = selected.flags.some((flag) => {
+    const normalized = rawValue.trim();
+    if (!normalized) return;
+    const correct = challenge.flags.some((flag) => {
       if (flag.type === "regex") return new RegExp(flag.value).test(normalized);
       return flag.value === normalized;
     });
@@ -604,12 +739,12 @@ function Challenges({ state, user, selected, setSelected, updateState, showToast
       const nextAttempt = {
         id: uid("a"),
         userId: user.id,
-        challengeId: selected.id,
+        challengeId: challenge.id,
         value: normalized,
         correct,
         at: new Date().toISOString(),
       };
-      const already = current.solves.some((solve) => solve.userId === user.id && solve.challengeId === selected.id);
+      const already = current.solves.some((solve) => solve.userId === user.id && solve.challengeId === challenge.id);
       const nextSolves = correct && !already
         ? [
             ...current.solves,
@@ -617,80 +752,208 @@ function Challenges({ state, user, selected, setSelected, updateState, showToast
               id: uid("s"),
               userId: user.id,
               teamId: user.teamId,
-              challengeId: selected.id,
+              challengeId: challenge.id,
               at: new Date().toISOString(),
-              points: computeChallengeValue(selected, current.solves.filter((solve) => solve.challengeId === selected.id).length),
+              points: computeChallengeValue(challenge, current.solves.filter((solve) => solve.challengeId === challenge.id).length),
             },
           ]
         : current.solves;
       return { ...current, attempts: [nextAttempt, ...current.attempts], solves: nextSolves };
     });
-    setFlagValue("");
+    onDone?.(correct);
     showToast(correct ? "Flag correcta. Puntos asignados." : "Flag incorrecta. Intento registrado.");
   };
 
-  const visible = state.challenges.filter((challenge) => challenge.visible && (filter === "All" || challenge.category === filter));
+  const openCard = (challenge) => {
+    setOpenId(challenge.id);
+    setSelected(challenge.id);
+  };
 
   return (
-    <section className="screen challenge-layout">
-      <div className="challenge-list">
-        <div className="search-row">
+    <section className="screen">
+      <div className="section-head">
+        <div>
+          <span className="eyebrow"><Flag size={14} /> Retos</span>
+          <h2>{visible.length} retos activos en {categories.length - 1} categorias.</h2>
+        </div>
+        <label className="toggle-pill">
+          <input type="checkbox" checked={onlyUnsolved} onChange={(e) => setOnlyUnsolved(e.target.checked)} />
+          Solo sin resolver
+        </label>
+      </div>
+
+      <div className="challenge-toolbar">
+        <div className="search-row grow">
           <Search size={17} />
-          <select value={filter} onChange={(event) => setFilter(event.target.value)}>
-            {categories.map((category) => <option key={category}>{category}</option>)}
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar reto o tag..." />
+        </div>
+        <div className="search-row">
+          <ArrowDownUp size={16} />
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            {SORT_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
           </select>
         </div>
-        {visible.map((challenge) => {
-          const count = state.solves.filter((solve) => solve.challengeId === challenge.id).length;
-          const solved = user && state.solves.some((solve) => solve.userId === user.id && solve.challengeId === challenge.id);
-          return (
-            <button key={challenge.id} className={selected.id === challenge.id ? "challenge-card active" : "challenge-card"} onClick={() => setSelected(challenge.id)}>
-              <div>
-                <strong>{challenge.name}</strong>
-                <span>{challenge.category}</span>
-              </div>
-              <div className="challenge-score">
-                <b>{computeChallengeValue(challenge, count)}</b>
-                {solved ? <CheckCircle2 size={16} /> : <ChevronRight size={16} />}
-              </div>
-            </button>
-          );
-        })}
       </div>
-      <article className="challenge-detail">
+
+      <div className="chip-row">
+        {categories.map((cat) => (
+          <button
+            key={cat}
+            className={category === cat ? "chip active" : "chip"}
+            onClick={() => setCategory(cat)}
+          >
+            {cat === "All" ? "Todas" : cat}
+          </button>
+        ))}
+      </div>
+
+      <div className="chip-row">
+        <button className={difficulty === "All" ? "chip active" : "chip"} onClick={() => setDifficulty("All")}>
+          Toda dificultad
+        </button>
+        {DIFFICULTIES.map((diff) => (
+          <button
+            key={diff}
+            className={difficulty === diff ? "chip diff active" : "chip diff"}
+            data-diff={diff}
+            onClick={() => setDifficulty(diff)}
+          >
+            {diff}
+          </button>
+        ))}
+      </div>
+
+      {sorted.length === 0 ? (
+        <div className="empty-state slim">
+          <Search size={32} />
+          <p>No hay retos que coincidan con los filtros.</p>
+        </div>
+      ) : (
+        groups.map(([groupName, items]) => (
+          <div className="challenge-group" key={groupName}>
+            {grouped && (
+              <div className="group-head">
+                <Layers size={15} /> {groupName} <span>{items.length}</span>
+              </div>
+            )}
+            <div className="challenge-grid">
+              {items.map((challenge) => {
+                const count = solveCount(challenge.id);
+                const solved = isSolved(challenge.id);
+                return (
+                  <button
+                    key={challenge.id}
+                    className="ch-box"
+                    data-solved={solved ? "true" : "false"}
+                    onClick={() => openCard(challenge)}
+                  >
+                    <div className="ch-box-top">
+                      <span className="ch-cat">{challenge.category}</span>
+                      {solved ? <span className="ch-solved"><CheckCircle2 size={14} /> Resuelto</span> : <DifficultyBadge difficulty={difficultyOf(challenge)} />}
+                    </div>
+                    <h3>{challenge.name}</h3>
+                    <div className="ch-tags">
+                      {(challenge.tags || []).slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
+                    </div>
+                    <div className="ch-box-foot">
+                      <span className="ch-points"><CircleDollarSign size={15} /> {computeChallengeValue(challenge, count)}</span>
+                      {firstBlood[challenge.id]
+                        ? <span className="ch-blood" title={`First blood: ${firstBloodName(challenge.id)}`}><Droplet size={14} /> {firstBloodName(challenge.id)}</span>
+                        : <span className="ch-meta"><Users size={14} /> {count}</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))
+      )}
+
+      {openChallenge && (
+        <ChallengeModal
+          challenge={openChallenge}
+          solveCount={solveCount(openChallenge.id)}
+          solved={isSolved(openChallenge.id)}
+          firstBlood={firstBloodName(openChallenge.id)}
+          canPlay={Boolean(user)}
+          onSubmit={submitFlag}
+          onClose={() => setOpenId(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+function ChallengeModal({ challenge, solveCount, solved, firstBlood, canPlay, onSubmit, onClose }) {
+  const [flagValue, setFlagValue] = useState("");
+  const value = computeChallengeValue(challenge, solveCount);
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    onSubmit(challenge, flagValue, (correct) => {
+      if (correct) setFlagValue("");
+    });
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal challenge-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="icon-button close" type="button" onClick={onClose} aria-label="Cerrar"><X size={18} /></button>
         <div className="challenge-header">
           <div>
-            <span className="eyebrow"><Flag size={14} /> {selected.category}</span>
-            <h2>{selected.name}</h2>
+            <span className="eyebrow"><Flag size={14} /> {challenge.category}</span>
+            <h2>{challenge.name}</h2>
+            <div className="modal-badges">
+              <DifficultyBadge difficulty={difficultyOf(challenge)} />
+              <span className={solved ? "solved-badge sm" : "point-badge sm"}>{solved ? "Resuelto" : `${value} pts`}</span>
+              {firstBlood && <span className="ch-blood"><Droplet size={14} /> {firstBlood}</span>}
+            </div>
           </div>
-          <div className={alreadySolved ? "solved-badge" : "point-badge"}>{alreadySolved ? "Solved" : `${selectedValue} pts`}</div>
         </div>
-        <p>{selected.description}</p>
-        <div className="tag-row">
-          {selected.tags.map((tag) => <span key={tag}>{tag}</span>)}
-        </div>
+        <p>{challenge.description}</p>
+        {(challenge.tags || []).length > 0 && (
+          <div className="tag-row">
+            {challenge.tags.map((tag) => <span key={tag}>{tag}</span>)}
+          </div>
+        )}
         <div className="detail-grid">
-          <InfoBlock icon={Code2} label="Conexion" value={selected.connection || "offline file challenge"} />
-          <InfoBlock icon={FileArchive} label="Archivos" value={selected.files.join(", ") || "sin archivos"} />
-          <InfoBlock icon={Eye} label="Solves" value={`${solvesForSelected.length}`} />
-          <InfoBlock icon={LockKeyhole} label="Intentos max." value={`${selected.maxAttempts}`} />
+          <InfoBlock icon={Code2} label="Conexion" value={challenge.connection || "reto offline"} />
+          <InfoBlock icon={FileArchive} label="Archivos" value={(challenge.files || []).join(", ") || "sin archivos"} />
+          <InfoBlock icon={Eye} label="Solves" value={`${solveCount}`} />
+          <InfoBlock icon={LockKeyhole} label="Intentos max." value={`${challenge.maxAttempts}`} />
         </div>
-        <Panel title="Hints desbloqueables" icon={BookOpen}>
-          <div className="hint-grid">
-            {selected.hints.map((hint, index) => (
-              <div className="hint-card" key={hint.text}>
-                <span>Hint {index + 1} · {hint.cost} pts</span>
-                <p>{hint.text}</p>
-              </div>
+        {(challenge.files || []).length > 0 && (
+          <div className="file-row">
+            {challenge.files.map((file) => (
+              <span className="file-pill" key={file}><Download size={14} /> {file}</span>
             ))}
           </div>
-        </Panel>
-        <div className="submit-row">
-          <input value={flagValue} onChange={(event) => setFlagValue(event.target.value)} placeholder="DCTF{...}" />
-          <button className="primary-button" onClick={submitFlag}><Flag size={16} /> Enviar</button>
-        </div>
-      </article>
-    </section>
+        )}
+        {(challenge.hints || []).length > 0 && (
+          <Panel title="Hints desbloqueables" icon={BookOpen}>
+            <div className="hint-grid">
+              {challenge.hints.map((hint, index) => (
+                <div className="hint-card" key={hint.text}>
+                  <span>Hint {index + 1} · {hint.cost} pts</span>
+                  <p>{hint.text}</p>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        )}
+        <form className="submit-row" onSubmit={handleSubmit}>
+          <input
+            value={flagValue}
+            onChange={(event) => setFlagValue(event.target.value)}
+            placeholder={canPlay ? "DCTF{...}" : "Inicia sesion para enviar flags"}
+            disabled={!canPlay}
+          />
+          <button className="primary-button" type="submit" disabled={!canPlay}><Flag size={16} /> Enviar</button>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -705,8 +968,14 @@ function InfoBlock({ icon: Icon, label, value }) {
 }
 
 function Scoreboard({ state }) {
+  const [board, setBoard] = useState("teams");
   const teamScores = buildTeamScores(state);
   const userScores = buildUserScores(state);
+  const rows = board === "teams" ? teamScores : userScores;
+  const frozen = state.event.freezeScoreboard;
+  const podium = rows.slice(0, 3);
+  const podiumOrder = [podium[1], podium[0], podium[2]].filter(Boolean);
+
   return (
     <section className="screen">
       <div className="section-head">
@@ -714,22 +983,46 @@ function Scoreboard({ state }) {
           <span className="eyebrow"><Medal size={14} /> Scoreboard</span>
           <h2>Ranking con desempate por ultima resolucion.</h2>
         </div>
+        <div className="segmented">
+          <button className={board === "teams" ? "active" : ""} onClick={() => setBoard("teams")}><Users size={15} /> Equipos</button>
+          <button className={board === "users" ? "active" : ""} onClick={() => setBoard("users")}><UserRound size={15} /> Jugadores</button>
+        </div>
       </div>
-      <div className="score-grid">
-        <Panel title="Equipos" icon={Users}>
-          <ScoreTable rows={teamScores} />
-        </Panel>
-        <Panel title="Competidores" icon={UserRound}>
-          <ScoreTable rows={userScores} />
-        </Panel>
-      </div>
+
+      {frozen && <div className="freeze-banner"><Lock size={15} /> Scoreboard congelado por la organizacion.</div>}
+
+      {podium.length > 0 && (
+        <div className="podium">
+          {podiumOrder.map((row) => {
+            const place = rows.indexOf(row) + 1;
+            return (
+              <div className={`podium-slot place-${place}`} key={row.id}>
+                <div className="podium-avatar">{row.name.slice(0, 2).toUpperCase()}</div>
+                <span className="podium-rank">{place === 1 ? <Trophy size={16} /> : <Medal size={15} />} {place}</span>
+                <strong>{row.name}</strong>
+                <b>{row.points} pts</b>
+                <small>{row.solves} solves</small>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Panel title={board === "teams" ? "Clasificacion de equipos" : "Clasificacion de jugadores"} icon={Trophy}>
+        <ScoreTable rows={rows} />
+      </Panel>
+
+      <Panel title="Carrera de puntos (top 5)" icon={Activity}>
+        <ScoreTimeline state={state} board={board} rows={rows} />
+      </Panel>
+
       <Panel title="Progreso top 10" icon={BarChart3}>
         <div className="bar-chart">
-          {teamScores.slice(0, 10).map((team) => (
-            <div className="bar-row" key={team.id}>
-              <span>{team.name}</span>
-              <div><i style={{ width: `${Math.max(8, (team.points / Math.max(teamScores[0]?.points || 1, 1)) * 100)}%` }} /></div>
-              <b>{team.points}</b>
+          {rows.slice(0, 10).map((row, index) => (
+            <div className="bar-row" key={row.id}>
+              <span>{index + 1}. {row.name}</span>
+              <div><i style={{ width: `${Math.max(6, (row.points / Math.max(rows[0]?.points || 1, 1)) * 100)}%` }} /></div>
+              <b>{row.points}</b>
             </div>
           ))}
         </div>
@@ -738,17 +1031,100 @@ function Scoreboard({ state }) {
   );
 }
 
-function ScoreTable({ rows }) {
+const CHART_COLORS = ["#9fef00", "#2dd4ff", "#ffb224", "#b178ff", "#ff5c6c"];
+
+function ScoreTimeline({ state, board, rows }) {
+  const entities = rows.slice(0, 5);
+  const key = board === "teams" ? "teamId" : "userId";
+  const events = [...state.solves]
+    .filter((s) => entities.some((e) => e.id === s[key]))
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+
+  if (entities.length === 0 || events.length === 0) {
+    return <p className="muted-note">Sin datos suficientes para la grafica.</p>;
+  }
+
+  const times = events.map((e) => new Date(e.at).getTime());
+  const t0 = Math.min(...times);
+  const t1 = Math.max(...times);
+  const span = Math.max(t1 - t0, 1);
+  const W = 760;
+  const H = 240;
+  const padL = 38;
+  const padB = 22;
+  const padT = 12;
+  const padR = 12;
+
+  const series = entities.map((entity, i) => {
+    let acc = 0;
+    const points = [[t0, 0]];
+    events.forEach((e) => {
+      if (e[key] === entity.id) {
+        acc += e.points;
+        points.push([new Date(e.at).getTime(), acc]);
+      }
+    });
+    points.push([t1, acc]);
+    return { entity, color: CHART_COLORS[i % CHART_COLORS.length], points, total: acc };
+  });
+
+  const maxY = Math.max(...series.map((s) => s.total), 1);
+  const x = (t) => padL + ((t - t0) / span) * (W - padL - padR);
+  const y = (v) => H - padB - (v / maxY) * (H - padT - padB);
+
   return (
-    <div className="table">
+    <div className="timeline">
+      <svg viewBox={`0 0 ${W} ${H}`} className="timeline-svg" role="img" aria-label="Carrera de puntos">
+        {[0, 0.25, 0.5, 0.75, 1].map((g) => (
+          <g key={g}>
+            <line x1={padL} x2={W - padR} y1={y(maxY * g)} y2={y(maxY * g)} className="grid" />
+            <text x={4} y={y(maxY * g) + 4} className="axis">{Math.round(maxY * g)}</text>
+          </g>
+        ))}
+        {series.map((s) => (
+          <polyline
+            key={s.entity.id}
+            fill="none"
+            stroke={s.color}
+            strokeWidth="2.5"
+            points={s.points.map(([t, v]) => `${x(t)},${y(v)}`).join(" ")}
+          />
+        ))}
+      </svg>
+      <div className="timeline-legend">
+        {series.map((s) => (
+          <span key={s.entity.id}><i style={{ background: s.color }} /> {s.entity.name}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScoreTable({ rows }) {
+  const top = rows[0]?.points || 1;
+  return (
+    <div className="score-table">
+      <div className="score-table-head">
+        <span>#</span>
+        <span>Nombre</span>
+        <span className="num">Solves</span>
+        <span className="num">Puntos</span>
+      </div>
       {rows.map((row, index) => (
-        <div className="table-row" key={row.id}>
-          <span>#{index + 1}</span>
-          <strong>{row.name}</strong>
-          <small>{row.solves} solves</small>
-          <b>{row.points}</b>
+        <div className={`score-table-row${index < 3 ? " top" : ""}`} key={row.id}>
+          <span className={`pos pos-${index + 1}`}>{index + 1}</span>
+          <div className="score-name">
+            <div className="score-avatar">{row.name.slice(0, 2).toUpperCase()}</div>
+            <div>
+              <strong>{row.name}</strong>
+              <i style={{ width: `${Math.max(4, (row.points / top) * 100)}%` }} />
+            </div>
+          </div>
+          <span className="num muted">{row.solves}</span>
+          <b className="num">{row.points}</b>
         </div>
       ))}
+      {rows.length === 0 && <p className="muted-note">Aun no hay puntajes registrados.</p>}
     </div>
   );
 }
@@ -934,7 +1310,10 @@ function AdminChallenges({ state, updateState, showToast }) {
         <div className="form-grid">
           <input placeholder="Nombre" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
           <select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
-            <option>Web</option><option>Crypto</option><option>Reverse</option><option>Forensics</option><option>Pwn</option><option>Misc</option>
+            {CATEGORIES.map((cat) => <option key={cat}>{cat}</option>)}
+          </select>
+          <select value={draft.difficulty} onChange={(event) => setDraft({ ...draft, difficulty: event.target.value })}>
+            {DIFFICULTIES.map((diff) => <option key={diff} value={diff}>{diff}</option>)}
           </select>
           <select value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value })}>
             <option value="standard">Standard</option><option value="dynamic">Dynamic</option>
@@ -969,7 +1348,7 @@ function AdminChallenges({ state, updateState, showToast }) {
             <div className={challenge.id === selectedId ? "editor-row active" : "editor-row"} key={challenge.id}>
               <button onClick={() => selectChallenge(challenge)}>
                 <strong>{challenge.name}</strong>
-                <small>{challenge.category} · {challenge.type} · {challenge.value} pts · {challenge.visible ? "visible" : "oculto"}</small>
+                <small>{challenge.category} · {difficultyOf(challenge)} · {challenge.value} pts · {challenge.visible ? "visible" : "oculto"}</small>
               </button>
             </div>
           ))}
@@ -1257,23 +1636,50 @@ function AdminSettings({ state, updateState }) {
   );
 }
 
-function LoginModal({ onClose, onLogin }) {
+function LoginModal({ onClose, onLogin, onRegister, canRegister }) {
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("admin@dctf.local");
   const [password, setPassword] = useState("admin");
+  const [reg, setReg] = useState({ name: "", email: "", password: "", country: "CL", affiliation: "" });
+  const isLogin = mode === "login";
+
   const submit = (event) => {
     event.preventDefault();
-    onLogin(email, password);
+    if (isLogin) onLogin(email, password);
+    else onRegister(reg);
   };
+
   return (
-    <div className="modal-backdrop">
-      <form className="modal" onSubmit={submit}>
+    <div className="modal-backdrop" onClick={onClose}>
+      <form className="modal" onSubmit={submit} onClick={(e) => e.stopPropagation()}>
         <button className="icon-button close" type="button" onClick={onClose} aria-label="Cerrar"><X size={18} /></button>
         <div className="modal-icon"><Shield size={28} /></div>
-        <h2>Ingresar a D-CTF</h2>
-        <p>Usa admin/admin o neo/player para probar roles.</p>
-        <input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email" />
-        <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="password" />
-        <button className="primary-button full" type="submit"><LogIn size={16} /> Ingresar</button>
+        <h2>{isLogin ? "Ingresar a D-CTF" : "Crear cuenta"}</h2>
+        <div className="segmented full">
+          <button type="button" className={isLogin ? "active" : ""} onClick={() => setMode("login")}>Ingresar</button>
+          <button type="button" className={!isLogin ? "active" : ""} onClick={() => setMode("register")} disabled={!canRegister}>Registro</button>
+        </div>
+
+        {isLogin ? (
+          <>
+            <p>Usa admin/admin o neo/player para probar roles.</p>
+            <input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email" />
+            <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="password" />
+            <button className="primary-button full" type="submit"><LogIn size={16} /> Ingresar</button>
+          </>
+        ) : (
+          <>
+            <p>Te unes como competidor. Un admin puede asignarte equipo.</p>
+            <input value={reg.name} onChange={(e) => setReg({ ...reg, name: e.target.value })} placeholder="nombre o alias" />
+            <input type="email" autoComplete="email" value={reg.email} onChange={(e) => setReg({ ...reg, email: e.target.value })} placeholder="email" />
+            <input type="password" autoComplete="new-password" value={reg.password} onChange={(e) => setReg({ ...reg, password: e.target.value })} placeholder="password" />
+            <div className="reg-row">
+              <input value={reg.country} onChange={(e) => setReg({ ...reg, country: e.target.value })} placeholder="pais" />
+              <input value={reg.affiliation} onChange={(e) => setReg({ ...reg, affiliation: e.target.value })} placeholder="afiliacion (opcional)" />
+            </div>
+            <button className="primary-button full" type="submit"><UserRound size={16} /> Crear cuenta</button>
+          </>
+        )}
       </form>
     </div>
   );
