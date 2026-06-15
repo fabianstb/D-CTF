@@ -4,6 +4,8 @@ D-CTF is a static, GitHub Pages friendly CTF platform prototype inspired by comm
 
 Because GitHub Pages is static hosting, this version uses browser `localStorage` as a demo data layer. It is ready to be replaced with a real API later.
 
+Backend/API migration notes are documented in [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
+
 ## Demo Accounts
 
 - Admin: `admin@dctf.local` / `admin`

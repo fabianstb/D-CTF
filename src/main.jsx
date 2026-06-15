@@ -270,6 +270,78 @@ function computeChallengeValue(challenge, solvesCount) {
   return Math.max(Number(challenge.minValue || 0), current);
 }
 
+const emptyChallengeForm = {
+  id: "",
+  name: "",
+  category: "Web",
+  type: "standard",
+  value: 100,
+  minValue: 100,
+  decay: 10,
+  maxAttempts: 12,
+  visible: true,
+  locked: false,
+  tags: "custom",
+  connection: "",
+  files: "",
+  flagType: "static",
+  flag: "DCTF{}",
+  hints: "",
+  description: "",
+};
+
+function listToText(items, key) {
+  return (items || []).map((item) => (key ? item[key] : item)).join("\n");
+}
+
+function textToList(value) {
+  return value
+    .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function challengeToForm(challenge = {}) {
+  const flag = challenge.flags?.[0] || { type: "static", value: "DCTF{}" };
+  return {
+    ...emptyChallengeForm,
+    ...challenge,
+    tags: listToText(challenge.tags || [], null),
+    files: listToText(challenge.files || [], null),
+    flagType: flag.type,
+    flag: flag.value,
+    hints: (challenge.hints || []).map((hint) => `${hint.cost}|${hint.text}`).join("\n"),
+  };
+}
+
+function formToChallenge(form, fallbackId) {
+  return {
+    id: form.id || fallbackId,
+    name: form.name.trim() || "Untitled challenge",
+    category: form.category,
+    type: form.type,
+    value: Number(form.value || 0),
+    minValue: Number(form.minValue || 0),
+    decay: Number(form.decay || 0),
+    visible: Boolean(form.visible),
+    locked: Boolean(form.locked),
+    maxAttempts: Number(form.maxAttempts || 0),
+    tags: textToList(form.tags),
+    connection: form.connection.trim(),
+    files: textToList(form.files),
+    flags: [{ type: form.flagType, value: form.flag.trim() || "DCTF{}" }],
+    hints: form.hints
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [cost, ...text] = line.split("|");
+        return { cost: Number(cost || 0), text: text.join("|").trim() || line };
+      }),
+    description: form.description.trim() || "Nuevo reto pendiente de descripcion.",
+  };
+}
+
 function App() {
   const [state, setState] = useState(loadState);
   const [active, setActive] = useState("overview");
@@ -817,55 +889,48 @@ function Admin({ state, user, updateState, showToast }) {
 }
 
 function AdminChallenges({ state, updateState, showToast }) {
-  const [draft, setDraft] = useState({
-    name: "",
-    category: "Web",
-    value: 100,
-    type: "standard",
-    description: "",
-    flag: "DCTF{}",
-  });
+  const [selectedId, setSelectedId] = useState(state.challenges[0]?.id || "");
+  const selected = state.challenges.find((challenge) => challenge.id === selectedId);
+  const [draft, setDraft] = useState(challengeToForm(selected));
 
-  const createChallenge = () => {
-    if (!draft.name.trim()) return;
-    updateState((current) => ({
-      ...current,
-      challenges: [
-        {
-          id: uid("c"),
-          name: draft.name,
-          category: draft.category,
-          type: draft.type,
-          value: Number(draft.value),
-          minValue: 100,
-          decay: 10,
-          visible: true,
-          locked: false,
-          maxAttempts: Number(current.event.maxAttempts),
-          tags: ["custom"],
-          connection: "",
-          files: [],
-          flags: [{ type: "static", value: draft.flag }],
-          hints: [],
-          description: draft.description || "Nuevo reto pendiente de descripcion.",
-        },
-        ...current.challenges,
-      ],
-    }));
-    setDraft({ name: "", category: "Web", value: 100, type: "standard", description: "", flag: "DCTF{}" });
-    showToast("Reto creado.");
+  const selectChallenge = (challenge) => {
+    setSelectedId(challenge.id);
+    setDraft(challengeToForm(challenge));
   };
 
-  const toggleVisible = (id) => {
+  const newChallenge = () => {
+    setSelectedId("");
+    setDraft(emptyChallengeForm);
+  };
+
+  const saveChallenge = () => {
+    const isNew = !draft.id;
+    const nextChallenge = formToChallenge(draft, uid("c"));
     updateState((current) => ({
       ...current,
-      challenges: current.challenges.map((challenge) => challenge.id === id ? { ...challenge, visible: !challenge.visible } : challenge),
+      challenges: isNew
+        ? [nextChallenge, ...current.challenges]
+        : current.challenges.map((challenge) => challenge.id === nextChallenge.id ? nextChallenge : challenge),
     }));
+    setSelectedId(nextChallenge.id);
+    setDraft(challengeToForm(nextChallenge));
+    showToast(isNew ? "Reto creado." : "Reto actualizado.");
+  };
+
+  const deleteChallenge = (id) => {
+    updateState((current) => ({
+      ...current,
+      challenges: current.challenges.filter((challenge) => challenge.id !== id),
+      solves: current.solves.filter((solve) => solve.challengeId !== id),
+      attempts: current.attempts.filter((attempt) => attempt.challengeId !== id),
+    }));
+    newChallenge();
+    showToast("Reto eliminado junto con solves/intentos asociados.");
   };
 
   return (
     <div className="admin-grid">
-      <Panel title="Crear reto" icon={Plus}>
+      <Panel title={draft.id ? "Editar reto" : "Crear reto"} icon={Plus}>
         <div className="form-grid">
           <input placeholder="Nombre" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
           <select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
@@ -875,20 +940,36 @@ function AdminChallenges({ state, updateState, showToast }) {
             <option value="standard">Standard</option><option value="dynamic">Dynamic</option>
           </select>
           <input type="number" placeholder="Puntaje" value={draft.value} onChange={(event) => setDraft({ ...draft, value: event.target.value })} />
-          <input placeholder="Flag" value={draft.flag} onChange={(event) => setDraft({ ...draft, flag: event.target.value })} />
+          <input type="number" placeholder="Puntaje minimo" value={draft.minValue} onChange={(event) => setDraft({ ...draft, minValue: event.target.value })} />
+          <input type="number" placeholder="Decay dinamico" value={draft.decay} onChange={(event) => setDraft({ ...draft, decay: event.target.value })} />
+          <input type="number" placeholder="Intentos max." value={draft.maxAttempts} onChange={(event) => setDraft({ ...draft, maxAttempts: event.target.value })} />
+          <input placeholder="Conexion / URL / nc host port" value={draft.connection} onChange={(event) => setDraft({ ...draft, connection: event.target.value })} />
+          <input placeholder="Tags separados por coma o linea" value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} />
+          <textarea placeholder="Archivos, uno por linea" value={draft.files} onChange={(event) => setDraft({ ...draft, files: event.target.value })} />
+          <select value={draft.flagType} onChange={(event) => setDraft({ ...draft, flagType: event.target.value })}>
+            <option value="static">Flag estatica</option><option value="regex">Flag regex</option>
+          </select>
+          <input placeholder="Flag o patron regex" value={draft.flag} onChange={(event) => setDraft({ ...draft, flag: event.target.value })} />
+          <textarea placeholder="Hints: costo|texto, uno por linea" value={draft.hints} onChange={(event) => setDraft({ ...draft, hints: event.target.value })} />
           <textarea placeholder="Descripcion markdown/html" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
-          <button className="primary-button" onClick={createChallenge}><Upload size={16} /> Crear reto</button>
+          <div className="inline-checks">
+            <label><input type="checkbox" checked={draft.visible} onChange={(event) => setDraft({ ...draft, visible: event.target.checked })} /> Visible</label>
+            <label><input type="checkbox" checked={draft.locked} onChange={(event) => setDraft({ ...draft, locked: event.target.checked })} /> Bloqueado</label>
+          </div>
+          <div className="form-actions">
+            <button className="primary-button" onClick={saveChallenge}><Upload size={16} /> Guardar</button>
+            <button className="secondary-button" onClick={newChallenge}><Plus size={16} /> Nuevo</button>
+            {draft.id && <button className="danger-button" onClick={() => deleteChallenge(draft.id)}><X size={16} /> Eliminar</button>}
+          </div>
         </div>
       </Panel>
       <Panel title="Retos existentes" icon={Flag}>
-        <div className="table">
+        <div className="editor-list">
           {state.challenges.map((challenge) => (
-            <div className="table-row wide" key={challenge.id}>
-              <strong>{challenge.name}</strong>
-              <small>{challenge.category} · {challenge.type}</small>
-              <b>{challenge.value} pts</b>
-              <button className="ghost-button" onClick={() => toggleVisible(challenge.id)}>
-                {challenge.visible ? <Eye size={15} /> : <X size={15} />} {challenge.visible ? "Visible" : "Oculto"}
+            <div className={challenge.id === selectedId ? "editor-row active" : "editor-row"} key={challenge.id}>
+              <button onClick={() => selectChallenge(challenge)}>
+                <strong>{challenge.name}</strong>
+                <small>{challenge.category} · {challenge.type} · {challenge.value} pts · {challenge.visible ? "visible" : "oculto"}</small>
               </button>
             </div>
           ))}
@@ -899,6 +980,55 @@ function AdminChallenges({ state, updateState, showToast }) {
 }
 
 function AdminUsers({ state, updateState }) {
+  const emptyUser = {
+    id: "",
+    name: "",
+    email: "",
+    password: "player",
+    role: "competitor",
+    teamId: state.teams.find((team) => !team.hidden)?.id || state.teams[0]?.id || "",
+    country: "CL",
+    affiliation: "",
+    bio: "",
+    banned: false,
+    verified: true,
+  };
+  const [selectedId, setSelectedId] = useState(state.users[0]?.id || "");
+  const selected = state.users.find((user) => user.id === selectedId) || emptyUser;
+  const [draft, setDraft] = useState(selected);
+
+  const selectUser = (nextUser) => {
+    setSelectedId(nextUser.id);
+    setDraft(nextUser);
+  };
+
+  const newUser = () => {
+    setSelectedId("");
+    setDraft(emptyUser);
+  };
+
+  const saveUser = () => {
+    const nextUser = { ...draft, id: draft.id || uid("u"), name: draft.name || "New competitor" };
+    updateState((current) => ({
+      ...current,
+      users: draft.id
+        ? current.users.map((user) => user.id === nextUser.id ? nextUser : user)
+        : [nextUser, ...current.users],
+    }));
+    setSelectedId(nextUser.id);
+    setDraft(nextUser);
+  };
+
+  const deleteUser = (id) => {
+    updateState((current) => ({
+      ...current,
+      users: current.users.filter((user) => user.id !== id),
+      solves: current.solves.filter((solve) => solve.userId !== id),
+      attempts: current.attempts.filter((attempt) => attempt.userId !== id),
+    }));
+    newUser();
+  };
+
   const toggle = (id, key) => {
     updateState((current) => ({
       ...current,
@@ -906,22 +1036,87 @@ function AdminUsers({ state, updateState }) {
     }));
   };
   return (
-    <Panel title="Usuarios" icon={Users}>
-      <div className="table">
-        {state.users.map((user) => (
-          <div className="table-row wide" key={user.id}>
-            <strong>{user.name}</strong>
-            <small>{user.email} · {user.role}</small>
-            <b>{user.country}</b>
-            <button className="ghost-button" onClick={() => toggle(user.id, "banned")}>{user.banned ? "Desbloquear" : "Bloquear"}</button>
+    <div className="admin-grid">
+      <Panel title={draft.id ? "Editar usuario" : "Crear usuario"} icon={Users}>
+        <div className="form-grid">
+          <input placeholder="Nombre" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+          <input type="email" placeholder="Email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} />
+          <input placeholder="Password demo" value={draft.password} onChange={(event) => setDraft({ ...draft, password: event.target.value })} />
+          <select value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value })}>
+            <option value="competitor">Competidor</option><option value="admin">Admin</option><option value="moderator">Moderador</option>
+          </select>
+          <select value={draft.teamId} onChange={(event) => setDraft({ ...draft, teamId: event.target.value })}>
+            {state.teams.map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}
+          </select>
+          <input placeholder="Pais" value={draft.country} onChange={(event) => setDraft({ ...draft, country: event.target.value })} />
+          <input placeholder="Afiliacion" value={draft.affiliation} onChange={(event) => setDraft({ ...draft, affiliation: event.target.value })} />
+          <textarea placeholder="Bio" value={draft.bio} onChange={(event) => setDraft({ ...draft, bio: event.target.value })} />
+          <div className="inline-checks">
+            <label><input type="checkbox" checked={draft.verified} onChange={(event) => setDraft({ ...draft, verified: event.target.checked })} /> Verificado</label>
+            <label><input type="checkbox" checked={draft.banned} onChange={(event) => setDraft({ ...draft, banned: event.target.checked })} /> Bloqueado</label>
           </div>
-        ))}
-      </div>
-    </Panel>
+          <div className="form-actions">
+            <button className="primary-button" onClick={saveUser}><Upload size={16} /> Guardar</button>
+            <button className="secondary-button" onClick={newUser}><Plus size={16} /> Nuevo</button>
+            {draft.id && <button className="danger-button" onClick={() => deleteUser(draft.id)}><X size={16} /> Eliminar</button>}
+          </div>
+        </div>
+      </Panel>
+      <Panel title="Usuarios" icon={Users}>
+        <div className="editor-list">
+          {state.users.map((user) => (
+            <div className={user.id === selectedId ? "editor-row active" : "editor-row"} key={user.id}>
+              <button onClick={() => selectUser(user)}>
+                <strong>{user.name}</strong>
+                <small>{user.email} · {user.role} · {user.banned ? "bloqueado" : "activo"}</small>
+              </button>
+              <button className="ghost-button" onClick={() => toggle(user.id, "banned")}>{user.banned ? "Desbloquear" : "Bloquear"}</button>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </div>
   );
 }
 
 function AdminTeams({ state, updateState }) {
+  const emptyTeam = { id: "", name: "", country: "CL", affiliation: "", website: "", hidden: false, banned: false };
+  const [selectedId, setSelectedId] = useState(state.teams[0]?.id || "");
+  const selected = state.teams.find((team) => team.id === selectedId) || emptyTeam;
+  const [draft, setDraft] = useState(selected);
+
+  const selectTeam = (team) => {
+    setSelectedId(team.id);
+    setDraft(team);
+  };
+
+  const newTeam = () => {
+    setSelectedId("");
+    setDraft(emptyTeam);
+  };
+
+  const saveTeam = () => {
+    const nextTeam = { ...draft, id: draft.id || uid("t"), name: draft.name || "New team" };
+    updateState((current) => ({
+      ...current,
+      teams: draft.id
+        ? current.teams.map((team) => team.id === nextTeam.id ? nextTeam : team)
+        : [nextTeam, ...current.teams],
+    }));
+    setSelectedId(nextTeam.id);
+    setDraft(nextTeam);
+  };
+
+  const deleteTeam = (id) => {
+    updateState((current) => ({
+      ...current,
+      teams: current.teams.filter((team) => team.id !== id),
+      users: current.users.map((user) => user.teamId === id ? { ...user, teamId: "" } : user),
+      solves: current.solves.filter((solve) => solve.teamId !== id),
+    }));
+    newTeam();
+  };
+
   const toggle = (id, key) => {
     updateState((current) => ({
       ...current,
@@ -929,44 +1124,111 @@ function AdminTeams({ state, updateState }) {
     }));
   };
   return (
-    <Panel title="Equipos" icon={Boxes}>
-      <div className="table">
-        {state.teams.map((team) => (
-          <div className="table-row wide" key={team.id}>
-            <strong>{team.name}</strong>
-            <small>{team.affiliation} · {team.country}</small>
-            <b>{team.hidden ? "Oculto" : "Publico"}</b>
-            <button className="ghost-button" onClick={() => toggle(team.id, "hidden")}>{team.hidden ? "Mostrar" : "Ocultar"}</button>
+    <div className="admin-grid">
+      <Panel title={draft.id ? "Editar equipo" : "Crear equipo"} icon={Boxes}>
+        <div className="form-grid">
+          <input placeholder="Nombre" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+          <input placeholder="Pais" value={draft.country} onChange={(event) => setDraft({ ...draft, country: event.target.value })} />
+          <input placeholder="Afiliacion" value={draft.affiliation} onChange={(event) => setDraft({ ...draft, affiliation: event.target.value })} />
+          <input placeholder="Website" value={draft.website} onChange={(event) => setDraft({ ...draft, website: event.target.value })} />
+          <div className="inline-checks">
+            <label><input type="checkbox" checked={draft.hidden} onChange={(event) => setDraft({ ...draft, hidden: event.target.checked })} /> Oculto</label>
+            <label><input type="checkbox" checked={draft.banned} onChange={(event) => setDraft({ ...draft, banned: event.target.checked })} /> Bloqueado</label>
           </div>
-        ))}
-      </div>
-    </Panel>
+          <div className="form-actions">
+            <button className="primary-button" onClick={saveTeam}><Upload size={16} /> Guardar</button>
+            <button className="secondary-button" onClick={newTeam}><Plus size={16} /> Nuevo</button>
+            {draft.id && <button className="danger-button" onClick={() => deleteTeam(draft.id)}><X size={16} /> Eliminar</button>}
+          </div>
+        </div>
+      </Panel>
+      <Panel title="Equipos" icon={Boxes}>
+        <div className="editor-list">
+          {state.teams.map((team) => (
+            <div className={team.id === selectedId ? "editor-row active" : "editor-row"} key={team.id}>
+              <button onClick={() => selectTeam(team)}>
+                <strong>{team.name}</strong>
+                <small>{team.affiliation} · {team.country} · {team.hidden ? "oculto" : "publico"}</small>
+              </button>
+              <button className="ghost-button" onClick={() => toggle(team.id, "hidden")}>{team.hidden ? "Mostrar" : "Ocultar"}</button>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </div>
   );
 }
 
 function AdminContent({ state, updateState }) {
-  const [message, setMessage] = useState("");
+  const [announcement, setAnnouncement] = useState({ title: "Admin update", body: "" });
+  const [pageDraft, setPageDraft] = useState(state.pages[0] || { id: "", title: "", body: "" });
   const publish = () => {
-    if (!message.trim()) return;
+    if (!announcement.body.trim()) return;
     updateState((current) => ({
       ...current,
-      announcements: [{ id: uid("m"), title: "Admin update", body: message, at: new Date().toISOString() }, ...current.announcements],
+      announcements: [{ id: uid("m"), title: announcement.title || "Admin update", body: announcement.body, at: new Date().toISOString() }, ...current.announcements],
     }));
-    setMessage("");
+    setAnnouncement({ title: "Admin update", body: "" });
   };
+
+  const savePage = () => {
+    const nextPage = { ...pageDraft, id: pageDraft.id || uid("page"), title: pageDraft.title || "Untitled page" };
+    updateState((current) => ({
+      ...current,
+      pages: pageDraft.id
+        ? current.pages.map((page) => page.id === nextPage.id ? nextPage : page)
+        : [nextPage, ...current.pages],
+    }));
+    setPageDraft(nextPage);
+  };
+
+  const deleteAnnouncement = (id) => {
+    updateState((current) => ({ ...current, announcements: current.announcements.filter((item) => item.id !== id) }));
+  };
+
+  const deletePage = (id) => {
+    updateState((current) => ({ ...current, pages: current.pages.filter((page) => page.id !== id) }));
+    setPageDraft({ id: "", title: "", body: "" });
+  };
+
   return (
     <div className="admin-grid">
       <Panel title="Nuevo anuncio" icon={MessageSquare}>
-        <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Mensaje para competidores" />
+        <input value={announcement.title} onChange={(event) => setAnnouncement({ ...announcement, title: event.target.value })} placeholder="Titulo" />
+        <textarea value={announcement.body} onChange={(event) => setAnnouncement({ ...announcement, body: event.target.value })} placeholder="Mensaje para competidores" />
         <button className="primary-button" onClick={publish}><Upload size={16} /> Publicar</button>
+        <div className="editor-list">
+          {state.announcements.map((item) => (
+            <div className="editor-row" key={item.id}>
+              <button>
+                <strong>{item.title}</strong>
+                <small>{item.body}</small>
+              </button>
+              <button className="danger-button" onClick={() => deleteAnnouncement(item.id)}><X size={15} /> Eliminar</button>
+            </div>
+          ))}
+        </div>
       </Panel>
       <Panel title="Paginas CMS" icon={BookOpen}>
-        {state.pages.map((page) => (
-          <article className="announcement" key={page.id}>
-            <strong>{page.title}</strong>
-            <p>{page.body}</p>
-          </article>
-        ))}
+        <div className="form-grid">
+          <input value={pageDraft.title} onChange={(event) => setPageDraft({ ...pageDraft, title: event.target.value })} placeholder="Titulo pagina" />
+          <textarea value={pageDraft.body} onChange={(event) => setPageDraft({ ...pageDraft, body: event.target.value })} placeholder="Contenido" />
+          <div className="form-actions">
+            <button className="primary-button" onClick={savePage}><Upload size={16} /> Guardar pagina</button>
+            <button className="secondary-button" onClick={() => setPageDraft({ id: "", title: "", body: "" })}><Plus size={16} /> Nueva</button>
+            {pageDraft.id && <button className="danger-button" onClick={() => deletePage(pageDraft.id)}><X size={16} /> Eliminar</button>}
+          </div>
+        </div>
+        <div className="editor-list">
+          {state.pages.map((page) => (
+            <div className={page.id === pageDraft.id ? "editor-row active" : "editor-row"} key={page.id}>
+              <button onClick={() => setPageDraft(page)}>
+                <strong>{page.title}</strong>
+                <small>{page.body}</small>
+              </button>
+            </div>
+          ))}
+        </div>
       </Panel>
     </div>
   );
@@ -980,11 +1242,16 @@ function AdminSettings({ state, updateState }) {
     <Panel title="Configuracion del evento" icon={Settings}>
       <div className="settings-grid">
         <label>Nombre<input value={state.event.name} onChange={(event) => patchEvent("name", event.target.value)} /></label>
+        <label>Modo<input value={state.event.mode} onChange={(event) => patchEvent("mode", event.target.value)} /></label>
         <label>Estado<select value={state.event.status} onChange={(event) => patchEvent("status", event.target.value)}><option>Live</option><option>Paused</option><option>Ended</option></select></label>
+        <label>Inicio<input type="datetime-local" value={state.event.startsAt} onChange={(event) => patchEvent("startsAt", event.target.value)} /></label>
+        <label>Termino<input type="datetime-local" value={state.event.endsAt} onChange={(event) => patchEvent("endsAt", event.target.value)} /></label>
         <label>Intentos max.<input type="number" value={state.event.maxAttempts} onChange={(event) => patchEvent("maxAttempts", Number(event.target.value))} /></label>
+        <label className="settings-wide">Mensaje publico<textarea value={state.event.message} onChange={(event) => patchEvent("message", event.target.value)} /></label>
         <label className="switch"><input type="checkbox" checked={state.event.publicScoreboard} onChange={(event) => patchEvent("publicScoreboard", event.target.checked)} /> Scoreboard publico</label>
         <label className="switch"><input type="checkbox" checked={state.event.freezeScoreboard} onChange={(event) => patchEvent("freezeScoreboard", event.target.checked)} /> Congelar ranking</label>
         <label className="switch"><input type="checkbox" checked={state.event.allowRegistration} onChange={(event) => patchEvent("allowRegistration", event.target.checked)} /> Registro abierto</label>
+        <label className="switch"><input type="checkbox" checked={state.event.requireEmailVerification} onChange={(event) => patchEvent("requireEmailVerification", event.target.checked)} /> Verificar email</label>
       </div>
     </Panel>
   );

@@ -632,6 +632,90 @@ textarea {
   grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
 }
 
+.form-actions,
+.inline-checks {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.inline-checks label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.inline-checks input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+}
+
+.danger-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 107, 107, 0.42);
+  border-radius: var(--radius);
+  color: #ffd5d5;
+  background: rgba(255, 107, 107, 0.12);
+  font-weight: 800;
+}
+
+.editor-list {
+  display: grid;
+  gap: 10px;
+  max-height: 720px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.editor-row.active {
+  border-color: rgba(72, 231, 164, 0.48);
+  background: rgba(72, 231, 164, 0.1);
+}
+
+.editor-row > button:first-child {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+}
+
+.editor-row strong,
+.editor-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-row small {
+  color: var(--muted);
+}
+
 .hint-card {
   padding: 12px;
   border: 1px dashed rgba(72, 231, 164, 0.32);
@@ -750,6 +834,10 @@ textarea {
 
 .settings-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-wide {
+  grid-column: 1 / -1;
 }
 
 .settings-grid label {
@@ -928,7 +1016,8 @@ textarea {
   .table-row,
   .table-row.wide,
   .bar-row,
-  .activity-row {
+  .activity-row,
+  .editor-row {
     grid-template-columns: 1fr;
     align-items: start;
   }
