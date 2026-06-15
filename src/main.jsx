@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -144,6 +144,7 @@ const seedState = {
       name: "Signal Leak",
       category: "Web",
       difficulty: "Medium",
+      coords: { x: 26, y: 38 },
       type: "standard",
       value: 350,
       minValue: 120,
@@ -167,6 +168,7 @@ const seedState = {
       name: "Cold Lattice",
       category: "Crypto",
       difficulty: "Hard",
+      coords: { x: 50, y: 30 },
       type: "dynamic",
       value: 500,
       minValue: 150,
@@ -187,6 +189,7 @@ const seedState = {
       name: "Pulse VM",
       category: "Reverse",
       difficulty: "Insane",
+      coords: { x: 74, y: 46 },
       type: "standard",
       value: 420,
       minValue: 180,
@@ -207,6 +210,7 @@ const seedState = {
       name: "Satellite Dust",
       category: "Forensics",
       difficulty: "Easy",
+      coords: { x: 53, y: 64 },
       type: "standard",
       value: 280,
       minValue: 100,
@@ -244,6 +248,7 @@ const seedState = {
     { userId: "u-neo", challengeId: "c-crypto" },
     { userId: "u-ada", challengeId: "c-web" },
   ],
+  hintUnlocks: [],
 };
 
 function loadState() {
@@ -315,6 +320,8 @@ const emptyChallengeForm = {
   flag: "DCTF{}",
   hints: "",
   description: "",
+  coordX: 50,
+  coordY: 50,
 };
 
 function listToText(items, key) {
@@ -338,6 +345,8 @@ function challengeToForm(challenge = {}) {
     flagType: flag.type,
     flag: flag.value,
     hints: (challenge.hints || []).map((hint) => `${hint.cost}|${hint.text}`).join("\n"),
+    coordX: challenge.coords?.x ?? 50,
+    coordY: challenge.coords?.y ?? 50,
   };
 }
 
@@ -367,6 +376,7 @@ function formToChallenge(form, fallbackId) {
         return { cost: Number(cost || 0), text: text.join("|").trim() || line };
       }),
     description: form.description.trim() || "Nuevo reto pendiente de descripcion.",
+    coords: { x: Number(form.coordX ?? 50), y: Number(form.coordY ?? 50) },
   };
 }
 
@@ -483,6 +493,18 @@ function App() {
   );
 }
 
+function hintCostByUser(state, userId) {
+  return (state.hintUnlocks || [])
+    .filter((h) => h.userId === userId)
+    .reduce((sum, h) => sum + Number(h.cost || 0), 0);
+}
+
+function hintCostByTeam(state, teamId) {
+  return (state.hintUnlocks || [])
+    .filter((h) => h.teamId === teamId)
+    .reduce((sum, h) => sum + Number(h.cost || 0), 0);
+}
+
 function getStats(state, user) {
   const visibleChallenges = state.challenges.filter((challenge) => challenge.visible);
   const totalSolves = state.solves.length;
@@ -492,8 +514,8 @@ function getStats(state, user) {
   return {
     visibleChallenges: visibleChallenges.length,
     totalSolves,
-    userPoints: userSolves.reduce((sum, solve) => sum + solve.points, 0),
-    teamPoints: teamSolves.reduce((sum, solve) => sum + solve.points, 0),
+    userPoints: userSolves.reduce((sum, solve) => sum + solve.points, 0) - (user ? hintCostByUser(state, user.id) : 0),
+    teamPoints: teamSolves.reduce((sum, solve) => sum + solve.points, 0) - (user ? hintCostByTeam(state, user.teamId) : 0),
     solvedCount: userSolves.length,
     categories,
   };
@@ -539,6 +561,60 @@ function Sidebar({ active, setActive, user, onLogin, onLogout }) {
   );
 }
 
+function useNow(intervalMs = 1000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+function countdownParts(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return {
+    days: Math.floor(total / 86400),
+    hours: Math.floor((total % 86400) / 3600),
+    minutes: Math.floor((total % 3600) / 60),
+    seconds: total % 60,
+    done: total === 0,
+  };
+}
+
+function Countdown({ event, variant = "pill" }) {
+  const now = useNow(1000);
+  const start = new Date(event.startsAt).getTime();
+  const end = new Date(event.endsAt).getTime();
+  const beforeStart = now < start;
+  const target = beforeStart ? start : end;
+  const { days, hours, minutes, seconds, done } = countdownParts(target - now);
+  const label = beforeStart ? "Empieza en" : done ? "Evento finalizado" : "Termina en";
+  const pad = (n) => String(n).padStart(2, "0");
+
+  if (variant === "hero") {
+    return (
+      <div className="countdown-hero" data-state={done ? "done" : beforeStart ? "soon" : "live"}>
+        <span className="countdown-label"><Clock3 size={14} /> {label}</span>
+        {done ? (
+          <strong className="countdown-done">GG</strong>
+        ) : (
+          <div className="countdown-units">
+            {[[days, "d"], [hours, "h"], [minutes, "m"], [seconds, "s"]].map(([v, u]) => (
+              <div className="cd-unit" key={u}><b>{pad(v)}</b><span>{u}</span></div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="time-pill" title={`${label} ${formatTime(event.endsAt)}`} data-state={done ? "done" : "live"}>
+      <Clock3 size={16} /> {done ? "Finalizado" : `${days > 0 ? `${days}d ` : ""}${pad(hours)}:${pad(minutes)}:${pad(seconds)}`}
+    </div>
+  );
+}
+
 function Topbar({ event, user, onLogin, resetDemo }) {
   return (
     <header className="topbar">
@@ -547,7 +623,7 @@ function Topbar({ event, user, onLogin, resetDemo }) {
         <h1>{event.name}</h1>
       </div>
       <div className="topbar-actions">
-        <div className="time-pill"><Clock3 size={16} /> {formatTime(event.endsAt)}</div>
+        <Countdown event={event} />
         <button className="ghost-button" onClick={resetDemo}><Radar size={16} /> Reset</button>
         {!user && <button className="primary-button" onClick={onLogin}><KeyRound size={16} /> Ingresar</button>}
       </div>
@@ -564,6 +640,7 @@ function Overview({ state, stats, setActive }) {
           <span className="eyebrow"><Sparkles size={14} /> Next-gen CTF arena</span>
           <h2>Retos, ranking y operaciones en una consola rapida y visual.</h2>
           <p>{state.event.message}</p>
+          <Countdown event={state.event} variant="hero" />
           <div className="hero-actions">
             <button className="primary-button" onClick={() => setActive("challenges")}><Flag size={17} /> Ver retos</button>
             <button className="secondary-button" onClick={() => setActive("scoreboard")}><Trophy size={17} /> Ranking</button>
@@ -675,6 +752,7 @@ function Challenges({ state, user, selected, setSelected, updateState, showToast
   const [difficulty, setDifficulty] = useState("All");
   const [sort, setSort] = useState("category");
   const [onlyUnsolved, setOnlyUnsolved] = useState(false);
+  const [view, setView] = useState("grid");
   const [openId, setOpenId] = useState(null);
 
   const isSolved = (challengeId) =>
@@ -764,6 +842,39 @@ function Challenges({ state, user, selected, setSelected, updateState, showToast
     showToast(correct ? "Flag correcta. Puntos asignados." : "Flag incorrecta. Intento registrado.");
   };
 
+  const unlockHint = (challenge, index) => {
+    if (!user) {
+      showToast("Inicia sesion para usar hints.");
+      return;
+    }
+    const hint = challenge.hints[index];
+    const already = (state.hintUnlocks || []).some(
+      (h) => h.userId === user.id && h.challengeId === challenge.id && h.index === index
+    );
+    if (already) return;
+    updateState((current) => ({
+      ...current,
+      hintUnlocks: [
+        ...(current.hintUnlocks || []),
+        {
+          id: uid("h"),
+          userId: user.id,
+          teamId: user.teamId,
+          challengeId: challenge.id,
+          index,
+          cost: Number(hint.cost || 0),
+          at: new Date().toISOString(),
+        },
+      ],
+    }));
+    showToast(`Hint desbloqueado (-${hint.cost} pts).`);
+  };
+
+  const unlockedHintsFor = (challengeId) =>
+    (state.hintUnlocks || [])
+      .filter((h) => user && h.userId === user.id && h.challengeId === challengeId)
+      .map((h) => h.index);
+
   const openCard = (challenge) => {
     setOpenId(challenge.id);
     setSelected(challenge.id);
@@ -776,10 +887,16 @@ function Challenges({ state, user, selected, setSelected, updateState, showToast
           <span className="eyebrow"><Flag size={14} /> Retos</span>
           <h2>{visible.length} retos activos en {categories.length - 1} categorias.</h2>
         </div>
-        <label className="toggle-pill">
-          <input type="checkbox" checked={onlyUnsolved} onChange={(e) => setOnlyUnsolved(e.target.checked)} />
-          Solo sin resolver
-        </label>
+        <div className="head-tools">
+          <label className="toggle-pill">
+            <input type="checkbox" checked={onlyUnsolved} onChange={(e) => setOnlyUnsolved(e.target.checked)} />
+            Solo sin resolver
+          </label>
+          <div className="segmented">
+            <button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")}><Boxes size={15} /> Grid</button>
+            <button className={view === "map" ? "active" : ""} onClick={() => setView("map")}><Radar size={15} /> Mapa</button>
+          </div>
+        </div>
       </div>
 
       <div className="challenge-toolbar">
@@ -825,7 +942,14 @@ function Challenges({ state, user, selected, setSelected, updateState, showToast
         ))}
       </div>
 
-      {sorted.length === 0 ? (
+      {view === "map" ? (
+        <WorldGameboard
+          challenges={sorted}
+          isSolved={isSolved}
+          firstBlood={firstBlood}
+          onOpen={openCard}
+        />
+      ) : sorted.length === 0 ? (
         <div className="empty-state slim">
           <Search size={32} />
           <p>No hay retos que coincidan con los filtros.</p>
@@ -878,6 +1002,8 @@ function Challenges({ state, user, selected, setSelected, updateState, showToast
           solved={isSolved(openChallenge.id)}
           firstBlood={firstBloodName(openChallenge.id)}
           canPlay={Boolean(user)}
+          unlockedHints={unlockedHintsFor(openChallenge.id)}
+          onUnlockHint={unlockHint}
           onSubmit={submitFlag}
           onClose={() => setOpenId(null)}
         />
@@ -886,7 +1012,7 @@ function Challenges({ state, user, selected, setSelected, updateState, showToast
   );
 }
 
-function ChallengeModal({ challenge, solveCount, solved, firstBlood, canPlay, onSubmit, onClose }) {
+function ChallengeModal({ challenge, solveCount, solved, firstBlood, canPlay, unlockedHints = [], onUnlockHint, onSubmit, onClose }) {
   const [flagValue, setFlagValue] = useState("");
   const value = computeChallengeValue(challenge, solveCount);
 
@@ -934,12 +1060,26 @@ function ChallengeModal({ challenge, solveCount, solved, firstBlood, canPlay, on
         {(challenge.hints || []).length > 0 && (
           <Panel title="Hints desbloqueables" icon={BookOpen}>
             <div className="hint-grid">
-              {challenge.hints.map((hint, index) => (
-                <div className="hint-card" key={hint.text}>
-                  <span>Hint {index + 1} · {hint.cost} pts</span>
-                  <p>{hint.text}</p>
-                </div>
-              ))}
+              {challenge.hints.map((hint, index) => {
+                const open = unlockedHints.includes(index);
+                return (
+                  <div className={open ? "hint-card open" : "hint-card locked"} key={index}>
+                    <span>Hint {index + 1} · {hint.cost} pts</span>
+                    {open ? (
+                      <p>{hint.text}</p>
+                    ) : (
+                      <button
+                        type="button"
+                        className="secondary-button hint-unlock"
+                        disabled={!canPlay}
+                        onClick={() => onUnlockHint(challenge, index)}
+                      >
+                        <KeyRound size={15} /> Desbloquear (-{hint.cost} pts)
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </Panel>
         )}
@@ -952,6 +1092,84 @@ function ChallengeModal({ challenge, solveCount, solved, firstBlood, canPlay, on
           />
           <button className="primary-button" type="submit" disabled={!canPlay}><Flag size={16} /> Enviar</button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+const WORLD_BLOBS = [
+  { cx: 13, cy: 6, rx: 9, ry: 3 },   // Canada / north
+  { cx: 13, cy: 10, rx: 7, ry: 4 },  // USA
+  { cx: 17, cy: 13, rx: 2, ry: 2 },  // Central America
+  { cx: 24, cy: 4, rx: 2, ry: 2 },   // Greenland
+  { cx: 21, cy: 20, rx: 3, ry: 4 },  // South America N
+  { cx: 20, cy: 24, rx: 2, ry: 3 },  // South America S
+  { cx: 33, cy: 7, rx: 3, ry: 3 },   // Europe
+  { cx: 34, cy: 14, rx: 4, ry: 3 },  // Africa N
+  { cx: 35, cy: 19, rx: 4, ry: 4 },  // Africa S
+  { cx: 45, cy: 8, rx: 11, ry: 5 },  // Asia
+  { cx: 44, cy: 14, rx: 2, ry: 3 },  // India
+  { cx: 52, cy: 16, rx: 4, ry: 2 },  // SE Asia
+  { cx: 55, cy: 22, rx: 4, ry: 3 },  // Australia
+];
+
+const WORLD_COLS = 64;
+const WORLD_ROWS = 30;
+
+function buildWorldDots() {
+  const dots = [];
+  for (let r = 0; r < WORLD_ROWS; r += 1) {
+    for (let c = 0; c < WORLD_COLS; c += 1) {
+      const land = WORLD_BLOBS.some(
+        (b) => ((c - b.cx) / b.rx) ** 2 + ((r - b.cy) / b.ry) ** 2 <= 1
+      );
+      if (land) dots.push([(c / (WORLD_COLS - 1)) * 100, (r / (WORLD_ROWS - 1)) * 50]);
+    }
+  }
+  return dots;
+}
+
+const WORLD_DOTS = buildWorldDots();
+
+function WorldGameboard({ challenges, isSolved, firstBlood, onOpen }) {
+  return (
+    <div className="gameboard">
+      <svg viewBox="0 0 100 50" className="gameboard-svg" role="img" aria-label="Mapa de retos">
+        {WORLD_DOTS.map(([x, y], i) => (
+          <circle key={i} cx={x} cy={y} r={0.32} className="land-dot" />
+        ))}
+        {challenges.map((challenge) => {
+          const cx = challenge.coords?.x ?? 50;
+          const cy = (challenge.coords?.y ?? 50) * 0.5;
+          const solved = isSolved(challenge.id);
+          const blood = Boolean(firstBlood[challenge.id]);
+          return (
+            <g
+              key={challenge.id}
+              className="map-marker"
+              data-diff={difficultyOf(challenge)}
+              data-solved={solved ? "true" : "false"}
+              transform={`translate(${cx} ${cy})`}
+              onClick={() => onOpen(challenge)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === "Enter") onOpen(challenge); }}
+            >
+              <title>{`${challenge.name} · ${challenge.category} · ${difficultyOf(challenge)}`}</title>
+              <circle className="marker-pulse" r={2.6} />
+              <circle className="marker-core" r={1.3} />
+              {solved && <circle className="marker-ring" r={2} />}
+              {blood && <circle className="marker-blood" r={0.6} cx={1.3} cy={-1.3} />}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="gameboard-legend">
+        {DIFFICULTIES.map((diff) => (
+          <span key={diff}><i data-diff={diff} /> {diff}</span>
+        ))}
+        <span><i className="leg-solved" /> Resuelto</span>
+        <span><i className="leg-blood" /> First blood</span>
       </div>
     </div>
   );
@@ -1138,7 +1356,7 @@ function buildTeamScores(state) {
         id: team.id,
         name: team.name,
         solves: solves.length,
-        points: solves.reduce((sum, solve) => sum + solve.points, 0),
+        points: solves.reduce((sum, solve) => sum + solve.points, 0) - hintCostByTeam(state, team.id),
         lastSolve: solves.map((solve) => solve.at).sort().at(-1) || "",
       };
     })
@@ -1154,7 +1372,7 @@ function buildUserScores(state) {
         id: user.id,
         name: user.name,
         solves: solves.length,
-        points: solves.reduce((sum, solve) => sum + solve.points, 0),
+        points: solves.reduce((sum, solve) => sum + solve.points, 0) - hintCostByUser(state, user.id),
         lastSolve: solves.map((solve) => solve.at).sort().at(-1) || "",
       };
     })
@@ -1173,7 +1391,7 @@ function Profile({ state, user, updateState, onLogin }) {
   }
   const team = state.teams.find((item) => item.id === user.teamId);
   const solves = state.solves.filter((solve) => solve.userId === user.id);
-  const points = solves.reduce((sum, solve) => sum + solve.points, 0);
+  const points = solves.reduce((sum, solve) => sum + solve.points, 0) - hintCostByUser(state, user.id);
   const [bio, setBio] = useState(user.bio);
 
   const saveProfile = () => {
@@ -1331,6 +1549,8 @@ function AdminChallenges({ state, updateState, showToast }) {
           <input placeholder="Flag o patron regex" value={draft.flag} onChange={(event) => setDraft({ ...draft, flag: event.target.value })} />
           <textarea placeholder="Hints: costo|texto, uno por linea" value={draft.hints} onChange={(event) => setDraft({ ...draft, hints: event.target.value })} />
           <textarea placeholder="Descripcion markdown/html" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+          <input type="number" placeholder="Mapa X (0-100)" value={draft.coordX} onChange={(event) => setDraft({ ...draft, coordX: event.target.value })} />
+          <input type="number" placeholder="Mapa Y (0-100)" value={draft.coordY} onChange={(event) => setDraft({ ...draft, coordY: event.target.value })} />
           <div className="inline-checks">
             <label><input type="checkbox" checked={draft.visible} onChange={(event) => setDraft({ ...draft, visible: event.target.checked })} /> Visible</label>
             <label><input type="checkbox" checked={draft.locked} onChange={(event) => setDraft({ ...draft, locked: event.target.checked })} /> Bloqueado</label>

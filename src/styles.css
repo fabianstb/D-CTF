@@ -1594,6 +1594,195 @@ textarea:focus {
   color: var(--muted);
 }
 
+/* ---- Head tools (challenges) ---- */
+.head-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---- Countdown ---- */
+.time-pill[data-state="done"] {
+  color: var(--red);
+  border-color: rgba(255, 92, 108, 0.4);
+}
+
+.countdown-hero {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+
+.countdown-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green);
+  font-weight: 800;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.countdown-hero[data-state="done"] .countdown-label { color: var(--red); }
+.countdown-hero[data-state="soon"] .countdown-label { color: var(--yellow); }
+
+.countdown-units {
+  display: flex;
+  gap: 10px;
+}
+
+.cd-unit {
+  display: grid;
+  justify-items: center;
+  min-width: 58px;
+  padding: 10px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cd-unit b {
+  font-size: clamp(1.4rem, 4vw, 2rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.cd-unit span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.countdown-done {
+  font-size: 2rem;
+  color: var(--red);
+}
+
+/* ---- Hint unlock ---- */
+.hint-card.locked {
+  display: grid;
+  gap: 10px;
+  border-style: solid;
+  border-color: var(--line-soft);
+}
+
+.hint-unlock {
+  width: 100%;
+}
+
+/* ---- Gameboard (world map) ---- */
+.gameboard {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(45, 212, 255, 0.08), transparent 60%),
+    rgba(10, 14, 23, 0.85);
+}
+
+.gameboard-svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.land-dot {
+  fill: rgba(45, 212, 255, 0.22);
+}
+
+.map-marker {
+  cursor: pointer;
+}
+
+.map-marker .marker-core {
+  fill: var(--diff-medium);
+  stroke: rgba(10, 14, 23, 0.9);
+  stroke-width: 0.3;
+}
+
+.map-marker[data-diff="Easy"] .marker-core { fill: var(--diff-easy); }
+.map-marker[data-diff="Medium"] .marker-core { fill: var(--diff-medium); }
+.map-marker[data-diff="Hard"] .marker-core { fill: var(--diff-hard); }
+.map-marker[data-diff="Insane"] .marker-core { fill: var(--diff-insane); }
+
+.map-marker .marker-pulse {
+  fill: currentColor;
+  opacity: 0.25;
+  color: var(--diff-medium);
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: marker-pulse 2.4s ease-out infinite;
+}
+
+.map-marker[data-diff="Easy"] .marker-pulse { color: var(--diff-easy); }
+.map-marker[data-diff="Hard"] .marker-pulse { color: var(--diff-hard); }
+.map-marker[data-diff="Insane"] .marker-pulse { color: var(--diff-insane); }
+
+.map-marker:hover .marker-core {
+  stroke: #fff;
+  stroke-width: 0.4;
+}
+
+.map-marker .marker-ring {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 0.4;
+}
+
+.map-marker[data-solved="true"] .marker-pulse {
+  animation: none;
+  opacity: 0.12;
+}
+
+.map-marker .marker-blood {
+  fill: var(--red);
+}
+
+@keyframes marker-pulse {
+  0% { transform: scale(0.5); opacity: 0.45; }
+  70% { transform: scale(1.8); opacity: 0; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-marker .marker-pulse { animation: none; }
+}
+
+.gameboard-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.gameboard-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.gameboard-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.gameboard-legend i[data-diff="Easy"] { background: var(--diff-easy); }
+.gameboard-legend i[data-diff="Medium"] { background: var(--diff-medium); }
+.gameboard-legend i[data-diff="Hard"] { background: var(--diff-hard); }
+.gameboard-legend i[data-diff="Insane"] { background: var(--diff-insane); }
+.gameboard-legend i.leg-solved { background: none; border: 1.5px solid var(--green); }
+.gameboard-legend i.leg-blood { background: var(--red); }
+
 @media (max-width: 1120px) {
   .app {
     grid-template-columns: 88px minmax(0, 1fr);
